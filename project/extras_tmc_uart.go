@@ -150,7 +150,9 @@ func lookup_tmc_uart_mutex(mcu *MCU) *ReactorMutex {
 }
 
 const (
-	TMC_BAUD_RATE     float64 = 40000
+	// HACK: From c++ code
+	TMC_BAUD_RATE     float64 = 20000
+	// TMC_BAUD_RATE     float64 = 40000
 	TMC_BAUD_RATE_AVR float64 = 9000
 )
 

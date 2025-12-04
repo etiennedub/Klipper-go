@@ -15,7 +15,8 @@ import (
 	"reflect"
 	"runtime/debug"
 
-	//"os"
+	// "os"
+	"syscall"
 	"regexp"
 	"sort"
 	"strconv"
@@ -184,6 +185,7 @@ func (self *GCodeCommand) Ack(msg string) bool {
 	if msg != "" {
 		ok_msg = fmt.Sprintf("ok %s", msg)
 	}
+	logger.Debug("ack: ", ok_msg)
 	self.Respond_raw(ok_msg)
 	self.Need_ack = false
 	return true
@@ -583,10 +585,16 @@ func (self *GCodeDispatch) parseGcode(input string) []string {
 
 func (self *GCodeDispatch) Process_commands(commands []string, need_ack bool) {
 	for _, line := range commands {
+		logger.Debug("Command: ", line)
 		// Ignore comments and leading/trailing spaces
 		line = strings.Trim(line, " ")
 		origline := line
 		if cpos := strings.Index(line, ";"); cpos != -1 {
+			line = line[:cpos]
+		}
+
+		// TODO: Checksum logic here
+		if cpos := strings.Index(line, "*"); cpos != -1 {
 			line = line[:cpos]
 		}
 
@@ -663,6 +671,7 @@ func (self *GCodeDispatch) Create_gcode_command(command string, commandline stri
 
 // Response handling
 func (self *GCodeDispatch) Respond_raw(msg string) {
+	logger.Info("Respond_raw: ", msg)
 	for _, cb := range self.Output_callbacks {
 		cb(msg)
 	}
@@ -790,6 +799,7 @@ func (self *GCodeDispatch) Cmd_M115(argv interface{}) {
 }
 
 func (self *GCodeDispatch) Request_restart(result string) {
+	logger.Info("Request restart ", self.Is_printer_ready)
 	if self.Is_printer_ready == true {
 		toolhead := self.Printer.Lookup_object("toolhead", object.Sentinel{})
 		var print_time = toolhead.(*Toolhead).Get_last_move_time()
@@ -853,7 +863,7 @@ func (self *GCodeDispatch) Cmd_HELP(argv interface{}) {
 type GCodeIO struct {
 	Printer            *Printer
 	Gcode              *GCodeDispatch
-	Fd                 interface{}
+	Fd                 int
 	Gcode_mutex        *ReactorMutex
 	Reactor            IReactor
 	Is_printer_ready   bool
@@ -876,7 +886,14 @@ func NewGCodeIO(printer *Printer) *GCodeIO {
 	Gcode := printer.Lookup_object("gcode", object.Sentinel{})
 	self.Gcode = Gcode.(*GCodeDispatch)
 	self.Gcode_mutex = self.Gcode.Get_mutex()
-	self.Fd = printer.Get_start_args()["gcode_fd"]
+
+	fdUintPtr, ok := printer.Get_start_args()["gcode_fd"].(int)
+	if !ok {
+			logger.Error("Type assertion failed: self.Fd is %T, not uintptr", self.Fd)
+	}
+	fdAsInt := int(fdUintPtr)
+
+	self.Fd = fdAsInt
 	self.Reactor = printer.Get_reactor()
 	self.Is_printer_ready = false
 	self.Is_processing_data = false
@@ -888,9 +905,11 @@ func NewGCodeIO(printer *Printer) *GCodeIO {
 	}
 	self.Pipe_is_active = true
 	self.Fd_handle = nil
+	logger.Info("Is Fileinput: ", self.Is_fileinput)
 	if self.Is_fileinput == false {
 		self.Gcode.Register_output_handler(self.Respond_raw)
-		self.Fd_handle = self.Reactor.Register_fd(self.Fd.(int),
+		logger.Debug("TTY fd=", self.Fd)
+		self.Fd_handle = self.Reactor.Register_fd(self.Fd,
 			self.Process_data, nil)
 	}
 	self.Partial_input = ""
@@ -903,7 +922,7 @@ func NewGCodeIO(printer *Printer) *GCodeIO {
 func (self *GCodeIO) Handle_ready([]interface{}) error {
 	self.Is_printer_ready = true
 	if self.Is_fileinput && self.Fd_handle == nil {
-		self.Fd_handle = self.Reactor.Register_fd(self.Fd.(int),
+		self.Fd_handle = self.Reactor.Register_fd(self.Fd,
 			self.Process_data, nil)
 	}
 	return nil
@@ -937,21 +956,26 @@ func (self *GCodeIO) Handle_shutdown([]interface{}) error {
 }
 
 func (self *GCodeIO) Process_data(eventtime float64) interface{} {
-	// Read input, separate by newline, and add to pending_commands
-	// try:
-	//var data = string(os.read(self.Fd.(int), 4096).decode())
-	var data = ""
-	// except (os.error, UnicodeDecodeError):
-	// 	logging.exception("Read g-code")
-	// 	return
+	logger.Info("Process Data fd=", self.Fd)
+	buf := make([]byte, 4096)
+	n, err := syscall.Read(self.Fd, buf)
+	if err != nil {
+		logger.Error(err)
+	}
+	data := string(buf[:n])
+	logger.Info("data: ", data)
+
 	var tmp = list.New()
 	tmp.PushBack(eventtime)
 	tmp.PushBack(data)
 	self.Input_log.PushBack(tmp)
 	self.Bytes_read += len(data)
+
 	var lines = strings.Split(data, "\n")
 	lines[0] = self.Partial_input + lines[0]
 	self.Partial_input = lines[len(lines)-1]
+	lines = lines[:len(lines)-1]
+
 	var pending_commands = self.Pending_commands
 	pending_commands = append(pending_commands, lines...)
 	self.Pipe_is_active = true
@@ -997,19 +1021,20 @@ func (self *GCodeIO) Process_data(eventtime float64) interface{} {
 	}
 	self.Is_processing_data = false
 	if self.Fd_handle != nil {
-		self.Fd_handle = self.Reactor.Register_fd(self.Fd.(int),
+		self.Fd_handle = self.Reactor.Register_fd(self.Fd,
 			self.Process_data, nil)
 	}
 	return nil
 }
 
+
 func (self *GCodeIO) Respond_raw(msg string) {
-	if self.Pipe_is_active == true {
-		// try:
-		//os.write(self.Fd.(int), (msg + "\n").encode())
-		// except os.error:
-		// 	logging.exception("Write g-code response")
-		// 	self.Pipe_is_active = false
+	if self.Pipe_is_active {
+		data := []byte(msg + "\n")
+		_, err := syscall.Write(self.Fd, data)
+		if err != nil {
+			logger.Error(err)
+		}
 	}
 }
 
@@ -1019,5 +1044,5 @@ func (self *GCodeIO) Stats(eventtime float64) (bool, string) {
 
 func Add_early_printer_objects1(printer *Printer) {
 	printer.Add_object("gcode", NewGCodeDispatch(printer))
-	//printer.Add_object("gcode_io", NewGCodeIO(printer))
+	printer.Add_object("gcode_io", NewGCodeIO(printer))
 }

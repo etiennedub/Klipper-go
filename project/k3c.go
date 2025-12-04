@@ -13,6 +13,7 @@ import (
 	"runtime/debug"
 
 	"os"
+	"syscall"
 	"runtime"
 	"strings"
 	"time"
@@ -208,6 +209,7 @@ func (self *Printer) Load_object(config *ConfigWrapper, section string, default1
 }
 
 func (self *Printer) _read_config() {
+	logger.Debug("ReadConfig")
 	pconfig := NewPrinterConfig(self)
 	self.objects["configfile"] = pconfig
 
@@ -300,6 +302,7 @@ func (self *Printer) tryCatchConnect1() {
 			return
 		}
 	}
+	logger.Debug("Completed")
 }
 func (self *Printer) tryCatchConnect2() {
 	defer func() {
@@ -322,12 +325,17 @@ func (self *Printer) tryCatchConnect2() {
 			return
 		}
 	}
+	logger.Debug("Completed")
 }
 func (self *Printer) Run() string {
 	systime := float64(time.Now().UnixNano()) / 1000000000
 	monotime := self.reactor.Monotonic()
 	logger.Infof("Start printer at %s (%.1f %.1f)",
 		time.Now().String(), systime, monotime)
+
+	typeString := fmt.Sprintf("%T", self.reactor)
+	logger.Info("Reactor type inspected ", typeString)
+
 	// Enter main reactor loop
 	err := self.reactor.Run()
 	if err != nil {
@@ -474,29 +482,7 @@ func (self K3C) Main() {
 
 	start_args["apiserver"] = options.Apiserver
 	start_args["start_reason"] = "startup"
-
-	if options.Debuginput != "" {
-		start_args["debuginput"] = options.Debuginput
-		debuginput, err := os.OpenFile(options.Debuginput, os.O_RDONLY, 0644)
-		if err != nil {
-			logger.Error(err.Error())
-			os.Exit(3)
-		}
-		//debuginput =io. open(options.debuginput, 'rb')
-		start_args["gcode_fd"] = debuginput.Fd()
-	} else {
-		//start_args["gcode_fd"] = util.create_pty(options.Inputtty)
-		//debuginput, err := os.OpenFile(options.Inputtty, os.O_SYNC, 0644)
-		//if err != nil {
-		//	logger.Error(err.Error())
-		//	os.Exit(3)
-		//}
-		//start_args["gcode_fd"] = debuginput.Fd()
-	}
-	if options.Debugoutput != "" {
-		start_args["debugoutput"] = options.Debugoutput
-	}
-
+	
 	// init logger
 	debuglevel := logger.DebugLevel
 	if options.Logfile != "" {
@@ -512,6 +498,33 @@ func (self K3C) Main() {
 			7,
 		)
 	}
+
+	logger.Info(" options.Debuginput ",  options.Debuginput )
+	if options.Debuginput != "" {
+		start_args["debuginput"] = options.Debuginput
+		debuginput, err := os.OpenFile(options.Debuginput, os.O_RDONLY, 0644)
+		if err != nil {
+			logger.Error(err.Error())
+			os.Exit(3)
+		}
+		//debuginput =io. open(options.debuginput, 'rb')
+		start_args["gcode_fd"] = debuginput.Fd()
+	} else {
+		//start_args["gcode_fd"] = util.create_pty(options.Inputtty)
+		logger.Info("InputTTY")
+		// debuginput, err := syscall.Open(options.Inputtty, os.O_RDWR | syscall.O_NONBLOCK | os.O_SYNC, 0644)
+		fd, err := syscall.Open(options.Inputtty, syscall.O_RDWR | syscall.O_NONBLOCK, 0644)
+		if err != nil {
+			logger.Error(err.Error())
+			os.Exit(3)
+		}
+		logger.Debug(" syscall:  ",  fd )
+		start_args["gcode_fd"] = fd
+	}
+	if options.Debugoutput != "" {
+		start_args["debugoutput"] = options.Debugoutput
+	}
+
 
 	logger.Info("Starting K3C...")
 

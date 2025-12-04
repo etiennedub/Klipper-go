@@ -790,6 +790,7 @@ type MCU struct {
 	_baud                int
 	_canbus_iface        interface{}
 	_serialport          string
+	_pins_per_bank       int
 	_restart_method      string
 	_reset_cmd           *CommandWrapper
 	_is_mcu_bridge       bool
@@ -834,7 +835,12 @@ func NewMCU(config *ConfigWrapper, clocksync ClockSyncAble) *MCU {
 	self._baud = 0
 	self._canbus_iface = nil
 	canbus_uuid := config.Get("canbus_uuid", value.None, true)
-	if canbus_uuid != nil && canbus_uuid.(string) != "" {
+	dspsharespace := config.Get("mem_interface", value.None, true)
+	if dspsharespace != nil {
+		self._serialport = config.Get("mem_interface", object.Sentinel{}, true).(string)
+		self._pins_per_bank = 32;
+		self._baud = 1
+	} else if canbus_uuid != nil && canbus_uuid.(string) != "" {
 		self._serialport = canbus_uuid.(string)
 		self._canbus_iface = config.Get("canbus_interface", "can0", true)
 		//cbid := self._printer.Load_object(config, "canbus_ids")
@@ -1023,6 +1029,7 @@ func (self *MCU) _send_config(prev_crc *uint32) error {
 		logger.Debugf("Sending MCU '%s' printer configuration...",
 			self._name)
 		for _, c := range self._config_cmds {
+			logger.Info("Config send: ", c)
 			self.Serial.Send(c, 0, 0)
 		}
 	} else {
@@ -1039,7 +1046,7 @@ func (self *MCU) _send_config(prev_crc *uint32) error {
 func (self *MCU) _send_get_config() map[string]interface{} {
 	get_config_cmd := self.Lookup_query_command(
 		"get_config",
-		"config is_config=%c crc=%u is_shutdown=%c move_count=%hu", -1, nil, false)
+		"config is_config=%c crc=%u move_count=%hu is_shutdown=%c", -1, nil, false)
 	if self.Is_fileoutput() {
 		return map[string]interface{}{"is_config": 0, "move_count": 500, "crc": 0}
 	}
@@ -1101,6 +1108,8 @@ func (self *MCU) _connect([]interface{}) error {
 		logger.Panicf("Too few moves available on MCU '%s'", self._name)
 		return nil
 	}
+	// HACK: Harcoded value
+	move_count = 1024
 
 	self._steppersync =
 		chelper.Steppersync_alloc(self.Serial.Serialqueue, self._stepqueues,
@@ -1185,6 +1194,7 @@ func (self *MCU) _mcu_identify(argv []interface{}) error {
 	self.Register_response(self._handle_shutdown, "shutdown", nil)
 	self.Register_response(self._handle_shutdown, "is_shutdown", nil)
 	self.Register_response(self._handle_mcu_stats, "stats", nil)
+	logger.Debug("Completed")
 	return nil
 }
 

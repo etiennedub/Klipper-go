@@ -274,6 +274,7 @@ func (self *GCodeMove) Cmd_G1(argv interface{}) error {
 		}
 		self.speed = gcode_speed * self.speed_factor
 	}
+	logger.Debug("self.last_position: ", self.last_position)
 	self.move_with_transform(self.last_position, self.speed)
 	return nil
 }

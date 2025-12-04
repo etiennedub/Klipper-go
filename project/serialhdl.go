@@ -13,7 +13,6 @@ import (
 	"fmt"
 	"k3c/common/constants"
 	"k3c/common/logger"
-	"k3c/common/utils/reflects"
 	"k3c/common/utils/sys"
 	"k3c/project/chelper"
 	"k3c/project/util"
@@ -59,7 +58,7 @@ func NewSerialReader(reactor IReactor, warn_prefix string) *SerialReader {
 	self.reactor = reactor.(*EPollReactor)
 	self.warn_prefix = warn_prefix
 	// Serial port
-	self.serial_dev = nil
+	// self.serial_dev = nil
 	self.Msgparser = NewMessageParser(warn_prefix)
 	// C interface
 	self.ffi_lib = chelper.Get_ffi()
@@ -225,22 +224,49 @@ func (self *SerialReader) _get_identify_data(eventtime interface{}) interface{} 
 	}
 }
 
-func (self *SerialReader) _start_session(serial_dev SerialDeviceBase, serial_fd_type byte, client_id int) bool {
-	self.serial_dev = serial_dev
-	self.Serialqueue = chelper.Serialqueue_alloc(serial_dev.GetFd(), serial_fd_type, client_id)
+func readJsonFile(filePath string) ([]byte, error) {
+	// os.ReadFile is the simplest way to read an entire file into a byte slice
+	data, err := os.ReadFile(filePath) 
+	if err != nil {
+		// If the file doesn't exist or there's a permission issue, return the error
+		return nil, fmt.Errorf("failed to read file %s: %w", filePath, err)
+	}
+	return data, nil
+}
+
+func (self *SerialReader) _start_session(_ SerialDeviceBase, serial_fd_type byte, client_id int) bool {
+	// self.serial_dev = serial_dev
+	// HACK: Force serial config
+	self.Serialqueue = chelper.Serialqueue_alloc(serial_fd_type, client_id)
 	go self.bg_thread()
 	go self.timeoutThread()
 	// Obtain and load the data dictionary from the firmware
+	//
 	completion := self.reactor.Register_callback(self._get_identify_data, constants.NOW)
 	identify_data := completion.Wait(self.reactor.Monotonic()+5., nil)
+
 	if identify_data == nil {
 		logger.Errorf("%sTimeout on connect", self.warn_prefix)
 		self.Disconnect()
 		time.Sleep(time.Second)
 		return false
 	}
+
+	identify_data, err := readJsonFile("./identify.json")
+	if err != nil {
+		log.Fatalf("Fatal error reading JSON file: %v", err)
+	}
+
 	msgparser := NewMessageParser(self.warn_prefix)
 	msgparser.Process_identify(identify_data.([]byte), true)
+	msgparser.Config["SERIAL_BAUD"] = 0
+	msgparser.Config["RECEIVE_WINDOW"] = 192
+	msgparser.Config["CLOCK_FREQ"] = 200000000
+	msgparser.Config["ADC_MAX"] = 4095
+	msgparser.Config["_pwm_max"] = 255
+	msgparser.Config["STATS_SUMSQ_BASE"] = 256
+	logger.Info("Config Pin: ", msgparser.Enumerations["pin"])
+
 	self.Msgparser = msgparser
 	self.Register_response(self.Handle_unknown, "#unknown", nil)
 	// Setup baud adjust
@@ -329,7 +355,7 @@ func (self *SerialReader) Connect_pipe(filename string) {
 			continue
 		}
 		serial_dev := os.NewFile(uintptr(fd), filename)
-		//serial_dev := C.fdopen(C.int(fd), C.CString("rb+"))
+		// serial_dev := C.fdopen(C.int(fd), C.CString("rb+"))
 		serialDev := NewSerialDev(nil, nil, serial_dev)
 		ret := self._start_session(serialDev, 'u', 0)
 		if ret {
@@ -346,20 +372,22 @@ func (self *SerialReader) Connect_uart(serialport string, baud int, rts bool) {
 		if start_time > start_time+90. {
 			self._error("Unable to connect", nil)
 		}
-		var err error
 
-		cfg := &serial.Config{Name: serialport, Baud: baud, ReadTimeout: time.Microsecond * 900}
-		serial_dev, err := serial.OpenPort(cfg)
-		if err != nil {
-			logger.Errorf("%sUnable to open serial port: %s",
-				self.warn_prefix, err)
-			time.Sleep(time.Second)
-			self.reactor.Pause(self.reactor.Monotonic() + 5.)
-			continue
-		}
-		serialDev := NewSerialDev(serial_dev, cfg, reflects.GetPrivateFieldValue(serial_dev, "f").(*os.File))
+		// HACK: Force serial
+		// var err error
+		// cfg := &serial.Config{Name: serialport, Baud: baud, ReadTimeout: time.Microsecond * 900}
+		// serial_dev, err := serial.OpenPort(cfg)
+		// if err != nil {
+		// 	logger.Errorf("%sUnable to open serial port: %s",
+		// 		self.warn_prefix, err)
+		// 	time.Sleep(time.Second)
+		// 	self.reactor.Pause(self.reactor.Monotonic() + 5.)
+		// 	continue
+		// }
+		// serialDev := NewSerialDev(serial_dev, cfg, reflects.GetPrivateFieldValue(serial_dev, "f").(*os.File))
 		// stk500v2_leave(serialDev, self.reactor)
-		ret := self._start_session(serialDev, 'u', 0)
+		// serialDev := NewSerialDev(nil, nil, nil)
+		ret := self._start_session(nil, 'm', 0)
 
 		if ret {
 			break
@@ -562,8 +590,7 @@ func (self *SerialDev) GetFd() uintptr {
 	return self.file.Fd()
 }
 
-func NewSerialDev(Port *serial.Port, Config *serial.Config,
-	file *os.File) *SerialDev {
+func NewSerialDev(Port *serial.Port, Config *serial.Config, file *os.File) *SerialDev {
 	self := SerialDev{Port: Port, Config: Config, file: file}
 	return &self
 }
@@ -646,7 +673,6 @@ func (self *SerialRetryCommand) get_response(cmds []interface{}, cmd_queue inter
 		self.serial.Raw_send_wait_ack(cmds[lastCmdIndex].([]int), minclock, reqclock,
 			cmd_queue)
 		params := self.last_params
-		//log.Print(params)
 		if params != nil {
 			self.serial.Register_response(nil, self.name, self.oid)
 			return params, nil

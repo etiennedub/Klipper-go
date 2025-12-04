@@ -3,9 +3,13 @@ APP = gklib
 RUN_OPTIONS = -I /dev/ttyUSB0 -a /home/aston/klippy_uds1 ~/printer_data/config/printer.cfg
 DLV = dlv
 GCC = gcc
-ARMROOT = $(PWD)/rv1106-cross-compilation-toolchain/arm-rockchip830-linux-uclibcgnueabihf
-ARMCC = $(ARMROOT)/bin/arm-rockchip830-linux-uclibcgnueabihf-gcc
-ARMLIB = $(ARMROOT)/arm-rockchip830-linux-uclibcgnueabihf/sysroot/lib
+# ARMROOT = $(PWD)/rv1106-cross-compilation-toolchain/arm-rockchip830-linux-uclibcgnueabihf
+#
+# ARMROOT = /home/etienned/Documents/Buildroot-YuzukiSBC/buildroot/output/host/
+# ARMCC = $(ARMROOT)/bin/arm-linux-gnueabihf-gcc
+ARMROOT = /home/etienned/Documents/fake_disk/Rinkhals/buildroot/output/host/
+ARMCC = $(ARMROOT)/bin/arm-linux-gcc
+ARMLIB = $(ARMROOT)/lib
 ARMLIBCHELPER = $(PWD)/chelper/build_chelper_arm.sh
 386LIBCHELPER = $(PWD)/chelper/build_chelper_386.sh
 64LIBCHELPER = $(PWD)/chelper/build_chelper_x64.sh

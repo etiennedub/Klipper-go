@@ -11,6 +11,7 @@ import (
 	"k3c/project/greenlet"
 	"k3c/project/queue"
 	"k3c/project/util"
+	"fmt"
 	"math"
 	"reflect"
 	"runtime"
@@ -436,6 +437,7 @@ func (self *SelectReactor) Mutex(is_locked bool) *ReactorMutex {
 }
 
 func (self *SelectReactor) Register_fd(fd int, read_callback, write_callback func(eventtime float64) interface{}) *ReactorFileHandler {
+	logger.Info("Register FD")
 	file_handler := NewReactorFileHandler(fd, read_callback, write_callback)
 	self.Set_fd_wake(file_handler, true, false)
 	return file_handler
@@ -523,6 +525,7 @@ func (self *SelectReactor) _dispatch_loop(req interface{}) interface{} {
 		timeout := self._check_timers(eventtime, busy)
 		//logger.Debug(timeout)
 		busy = false
+		logger.Debug("DISPATCH_LOOP")
 		res := self._dispatch_loop4select(self._read_fds, self.write_fds, nil, timeout)
 		////select .select (self._read_fds, self.write_fds, [], timeout)
 		eventtime = self.Monotonic()
@@ -547,7 +550,7 @@ func (self *SelectReactor) _dispatch_loop(req interface{}) interface{} {
 			}
 		}
 	}
-	//logger.Debug(eventtime)
+	logger.Debug(eventtime)
 	self._g_dispatch = nil
 	return nil
 }
@@ -753,12 +756,15 @@ func NewEPollReactor(gc_checking bool) *EPollReactor {
 
 // File descriptors
 func (self *EPollReactor) Register_fd(fd int, read_callback, write_callback func(float64) interface{}) *ReactorFileHandler {
+	logger.Debug("Register_fd() START, self=", fmt.Sprintf("%p", self))
 	file_handler := NewReactorFileHandler(fd, read_callback, write_callback)
 	self._fds.Store(fd, file_handler)
 	self._epoll.Register(fd, epoll.EPOLLIN|epoll.EPOLLHUP)
+	logger.Debug("Register_fd() fd=", fd)
 	return file_handler
 }
 func (self *EPollReactor) Unregister_fd(file_handler *ReactorFileHandler) {
+	logger.Debug("Unregister_fd() fd=", file_handler.fd)
 	self._epoll.Unregister(file_handler.fd)
 	self._fds.Delete(file_handler.fd)
 }
@@ -776,11 +782,23 @@ func (self *EPollReactor) Set_fd_wake(file_handler *ReactorFileHandler, is_reada
 
 // Main loop
 func (self *EPollReactor) _dispatch_loop(req interface{}) interface{} {
+	logger.Debug("_dispatch_loop() START self=", fmt.Sprintf("%p", self))
 	g_dispatch := greenlet.Getcurrent()
 	self._g_dispatch = g_dispatch
 	busy := true
 	eventtime := self.Monotonic()
 	for {
+		// logger.Debug(fmt.Sprintf("Registered FDs: %v", func() []int {
+		//   var fds []int
+		//   self._fds.Range(func(key, value interface{}) bool {
+		//       if fd, ok := key.(int); ok {
+		//           fds = append(fds, fd)
+		//       }
+		//       return true // Continue iteration
+		//   })
+		//   return fds
+		// }()))
+		
 		//defer sys.CatchPanic()
 		if !self._process {
 			break
@@ -797,6 +815,7 @@ func (self *EPollReactor) _dispatch_loop(req interface{}) interface{} {
 			busy = true
 			event := res[i].Events
 			fd := int(res[i].Fd)
+			// logger.Debug("_dispatch_loop() fd=", fd)
 			if event&(epoll.EPOLLIN|epoll.EPOLLHUP) != 0 {
 				_func, ok := self._fds.Load(fd)
 				if ok {
@@ -822,10 +841,12 @@ func (self *EPollReactor) _dispatch_loop(req interface{}) interface{} {
 
 		}
 	}
+	logger.Debug("_dispatch_loop() END")
 	self._g_dispatch = nil
 	return nil
 }
 func (self *EPollReactor) Run() error {
+	logger.Debug("EPollReactor Run() - START")
 	if reflects.IsNil(self._pipe_fds[0]) {
 		self._setup_async_callbacks()
 	}
@@ -838,6 +859,7 @@ func (self *EPollReactor) Run() error {
 	self._greenlets = list.New()
 	syscall.Close(self._pipe_fds[0].(int))
 	syscall.Close(self._pipe_fds[1].(int))
+	logger.Debug("EPollReactor Run() - END")
 	return nil
 }
 

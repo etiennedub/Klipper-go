@@ -185,8 +185,11 @@ func Serialqueue_pull(serialqueue interface{}, response interface{}) {
 }
 
 // malloc c struct serialqueue
-func Serialqueue_alloc(fileno uintptr, serial_fd_type byte, client_id int) *C.struct_serialqueue {
-	serialqueue := C.serialqueue_alloc(C.int(fileno), C.char(serial_fd_type), C.int(client_id))
+func Serialqueue_alloc(serial_fd_type byte, client_id int) *C.struct_serialqueue {
+	// HACK: Force values
+	// struct serialqueue *serialqueue_alloc(const char *port, void *params, char serial_fd_type, int client_id, int max_pending_blocks);
+	fmt.Println("Serialqueue_alloc, serial_fd_type=", serial_fd_type, " client_id=", client_id)
+	serialqueue := C.serialqueue_alloc(C.CString("mem_interface_DSP"), nil, C.char(serial_fd_type), C.int(client_id), C.int(12))
 	return serialqueue
 }
 

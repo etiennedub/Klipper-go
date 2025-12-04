@@ -151,6 +151,8 @@ func (self *MCU_stepper) _build_config() {
 		invertStep = -1
 	}
 	stepPulseTicks := self._mcu.Seconds_to_clock(cast.ToFloat64(self._step_pulse_duration))
+	// stepPulseTicks = 400
+	// HACK: Ultimate HACK
 	self._mcu.Add_config_cmd(fmt.Sprintf("config_stepper oid=%d step_pin=%s dir_pin=%s invert_step=%d step_pulse_ticks=%d", self._oid, self._step_pin, self._dir_pin,
 		invertStep, stepPulseTicks), false, false)
 	self._mcu.Add_config_cmd(fmt.Sprintf("reset_step_clock oid=%d clock=0", self._oid), false, true)

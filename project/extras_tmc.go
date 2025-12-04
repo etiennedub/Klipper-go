@@ -696,7 +696,9 @@ func (self *TMCCommandHelper) _handle_mcu_identify(argv []interface{}) error {
 	force_move := MustLookupForceMove(self.printer)
 	self.stepper = force_move.Lookup_stepper(self.stepper_name)
 	// Note pulse duration and step_both_edge optimizations available
-	self.stepper.Setup_default_pulse_duration(.000000100, true)
+	// self.stepper.Setup_default_pulse_duration(.000000100, true)
+	// HACK: Magic Number from Centuri Carbon firmware
+	self.stepper.Setup_default_pulse_duration(0.000002, false)
 
 	return nil
 }

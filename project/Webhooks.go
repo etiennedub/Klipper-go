@@ -838,6 +838,7 @@ func (self *GCodeHelper) _handle_firmware_restart(web_request *WebRequest) (inte
 }
 
 func (self *GCodeHelper) _output_callback(msg string) {
+	logger.Debug("Webhook Callback")
 	for cconn, template := range self.clients {
 		if cconn.Is_closed() {
 			self.clients[cconn] = nil
@@ -850,6 +851,7 @@ func (self *GCodeHelper) _output_callback(msg string) {
 }
 
 func (self *GCodeHelper) _handle_subscribe_output(web_request *WebRequest) (interface{}, error) {
+	logger.Debug("Register output")
 	cconn := web_request.Get_client_connection()
 	template := web_request.Get_dict("response_template", map[string]interface{}{})
 	self.clients[cconn] = template
@@ -1054,6 +1056,8 @@ func (self *QueryStatusHelper) _handle_query(web_request *WebRequest) (interface
 	return self.handle_query(web_request, false)
 }
 func (self *QueryStatusHelper) handle_query(web_request *WebRequest, is_subscribe bool) (interface{}, error) {
+	logger.Debug("Query")
+
 	objects := web_request.Get_dict("objects", object.Sentinel{})
 	// Validate subscription format
 	for k, v := range objects {
@@ -1091,11 +1095,11 @@ func (self *QueryStatusHelper) handle_query(web_request *WebRequest, is_subscrib
 	if msg == nil {
 		msg = map[string]interface{}{}
 	}
+	logger.Debug(msg)
 	web_request.Send(msg.(map[string]interface{})["params"])
 	if is_subscribe {
 		self.clients[cconn] = []interface{}{cconn, objects, cconn.Send, template}
 	}
-	//logger.Debug(template)
 	return nil, nil
 }
 

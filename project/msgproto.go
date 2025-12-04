@@ -955,6 +955,7 @@ func (self *MessageParser) Process_identify(_data []byte, decompress bool) {
 	}
 	self.Version = data["version"].(string)
 	self.Build_versions = data["build_versions"].(string)
+	logger.Info("----- Identify completed ---- ", self.Version)
 
 }
 
